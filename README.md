@@ -12,7 +12,7 @@ La única configuración en Ubuntu debe ser marcar en IPv4 de la conexión wired
 
 http://rp-f09168.local/
 
-# Pruebas
+## Pruebas
 
 Se consiguió enviar un pulso desde una interfaz master a la interfaz slave a través de 2 FIFOs, marcando cuando la información esta lista desde un bit de configuración usado como flag
 
@@ -24,7 +24,7 @@ Para probarlo:
 
   - Correr el script de python desde visual studio code
 
-# Diseño en Vivado
+## Diseño en Vivado
 
 ![Alt text](Vivado_FIFO_loopback.png)
 
