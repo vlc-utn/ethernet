@@ -14,19 +14,23 @@ http://rp-f09168.local/
 
 ## Pruebas
 
-Se consiguió enviar un pulso desde una interfaz master a la interfaz slave a través de 2 FIFOs, marcando cuando la información esta lista desde un bit de configuración usado como flag
+Se consiguió enviar un pulso desde una interfaz master a la interfaz slave a través de 2 FIFOs y a través de los conversores DA/AD, marcando cuando la información esta lista desde un bit de configuración usado como flag
 
 Para probarlo:
 
-  - En la carpeta de notebooks desde el visual studio code copiar ambos *HUB_MASTER_pulse_FIFO.py* y *loopback_FIFO_3.bit*.
+  - En la carpeta de notebooks desde el visual studio code copiar *HUB_MASTER_pulse_FIFO.py*, *loopback_FIFO_3.bit*, *HUB_MASTER_pulse_ADC.py* y *loopback_ADC_3.bit*.
 
   - Entrar al link http://rp-f09168.local/ y marcar *playground* para programar la FPGA por primera vez, asegurarse que se encienda el LED azul.
 
-  - Correr el script de python desde visual studio code
+  - Correr el script de python que se quiera probar desde visual studio code.
 
 ## Diseño en Vivado
 
+### FIFO Loopback
 ![Alt text](Vivado_FIFO_loopback.png)
+
+### ADC Loopback
+![Alt text](Vivado_ADC_loopback.png)
 
 # Conexión ethernet con PYNQ-Z2
 
