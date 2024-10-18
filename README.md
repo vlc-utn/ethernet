@@ -1,3 +1,33 @@
+# Implementación para Red Pitaya usando repo red-pitaya-notes
+
+## Configuración
+
+Usando la información de la sección *Getting Started* del siguiente link
+
+https://pavel-demin.github.io/red-pitaya-notes/playground/https://pavel-demin.github.io/red-pitaya-notes/playground/
+
+cargo la imagen de Linux y uso el kernel de microbamba en el visual studio code.
+
+La única configuración en Ubuntu debe ser marcar en IPv4 de la conexión wired *Share to other computers* para poder acceder a las aplicaciones de Red Pitaya desde
+
+http://rp-f09168.local/
+
+# Pruebas
+
+Se consiguió enviar un pulso desde una interfaz master a la interfaz slave a través de 2 FIFOs, marcando cuando la información esta lista desde un bit de configuración usado como flag
+
+Para probarlo:
+
+  - En la carpeta de notebooks desde el visual studio code copiar ambos *HUB_MASTER_pulse_FIFO.py* y *loopback_FIFO_3.bit*.
+
+  - Entrar al link http://rp-f09168.local/ y marcar *playground* para programar la FPGA por primera vez, asegurarse que se encienda el LED azul.
+
+  - Correr el script de python desde visual studio code
+
+# Diseño en Vivado
+
+![Alt text](Vivado_FIFO_loopback.png)
+
 # Conexión ethernet con PYNQ-Z2
 
 ## Configuración en Vitis
