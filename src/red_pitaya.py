@@ -205,7 +205,126 @@ class RedPitayaTx(RedPitayaGeneric):
 class RedPitayaRx(RedPitayaGeneric):
     def __init__(self, bitstream, host="10.42.0.172", port=1001):
         RedPitayaGeneric.__init__(self, bitstream, host, port)
+        self.use_adc(True)
 
-    
+    def use_adc(self, input: bool):
+        """Select Input "True" for ADC, "False" for master AXI.
+        """
+        if(input == False):
+            self.rx_control[0] = set_bit(self.rx_control[0], 0)
+        else:
+            self.rx_control[0] = clear_bit(self.rx_control[0], 0)
+
+        self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
+
+    def read_vlc_rx(self) -> list:
+        # Wait until the registers are safe to read (header_ready y no header_error)
+        for i in range(10000):
+            (header_ready, header_error) = self.read_header_status()
+            if (header_error):
+                print("Header was received with error. Resetting and exiting...")
+                self.reset()
+                return
+
+            if (header_ready):
+                break
+            else:
+                sleep(0.01)
+
+        if (i==499):
+            print("Timeout reached while waiting for read")
+            return
+
+        # Read registers, knowing that they are valid now
+        regs = self.read_registers()
+        self.header_ack()
+
+        data = self.read_rx_fifo(regs[0] - regs[1])
+
+        return [regs, data]
+
+
+    def test_rx(self) -> np.ndarray:
+        """Test Functionality of the RX
+        """
+        self.reset()
+
+        print("Testing that the block doesn't trigger when idle...")
+        (header_ready, header_error) = self.read_header_status()
+        assert(header_ready == False and header_error == False)
+        sleep(10)
+        (header_ready, header_error) = self.read_header_status()
+        assert(header_ready == False and header_error == False)
+        print("Idle didn't trigger")
+
+        # Write RF data
+        for _ in range(5):
+            data_rf = read_binary_file("mem_files/data_in_rx.mem", dtype=np.int16, signed=True)
+            self.write(data_rf, port=Ports.VLC_RX, addr=0)
+            sleep(1)
+            self.use_adc(False)
+            # Expected values
+            expected_regs = np.zeros(4, np.uint32)
+            expected_regs[0] = 105
+            expected_regs[1] = 3
+            expected_regs[2] = 65792
+            expected_regs[3] = 66063
+            expected_out = read_binary_file("mem_files/data_out_rx.mem", dtype=np.uint8, signed=False)
+
+            print("Checking that the header was received without errors")
+            sleep(1)
+            (header_ready, header_error) = self.read_header_status()
+            assert(header_error == False)
+            assert(header_ready == True)
+
+            print("Testing register values...")
+            regs = self.read_registers()
+            assert(np.array_equal(expected_regs, regs))
+            print("Registers match!")
+
+            print("Reading info...")
+            [regs, data_rx] = self.read_vlc_rx()
+            assert(np.array_equal(expected_out, data_rx))
+            print("Data matches!")
+
+            self.use_adc(True)
+        print("Test Successful!")
+        return data_rx
+
+    def read_rx_fifo(self, size: np.uint32) -> np.ndarray:
+        """Read RX values, returns uint8"""
+        for i in range(500):
+            if (self.read_fifo_count() == size):
+                break
+
+        if (i == 499):
+            print("Timeout reached while waiting for the Fifo Rx")
+            return
+
+        data = np.zeros(size, np.uint32)
+        self.read(data, port=Ports.VLC_RX, addr=0)
+        data = data.astype(np.uint8)
+
+        return data
+
+    def read_header_status(self) -> tuple[bool, bool]:
+        """Read header_ready and header_error
+
+        If header_error == '1', the header was received with errors
+        If header_ready == '1', then the registers have a valid value and can be read
+        """
+        data = np.zeros(1, np.uint8)
+        data[0] = self.read_status(StsAddr.RX_STS)
+        (header_ready, header_error) = (data[0] & 0x01, data[0] &0x02)
+        return (header_ready, header_error)
+
+    def header_ack(self):
+        """Send a header ack after reading the registers of the current symbol"""
+        self.rx_control[0] = set_bit(self.rx_control[0], 1)
+        self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
+        sleep(0.01)
+        self.rx_control[0] = clear_bit(self.rx_control[0], 1)
+        self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
+
     def __del__(self):
         RedPitayaGeneric.__del__(self)

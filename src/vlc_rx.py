@@ -6,17 +6,16 @@ import matplotlib.pyplot as plt
 
 rp = RedPitayaRx(bitstream="bitstreams/vlc_rx.bit")
 data_rx = rp.test_rx()
-
-data_tx = read_binary_file("mem_files/data_out_rx.mem", dtype=np.int16, signed=True)
+expected_out = read_binary_file("mem_files/data_out_rx.mem", dtype=np.uint8, signed=False)
 
 ## Plotting
 plt.subplot(3,1,1)
-plt.plot(data_tx)
+plt.plot(expected_out)
 
 plt.subplot(3,1,2)
 plt.plot(data_rx)
 
 plt.subplot(3,1,3)
-plt.plot(abs(data_tx - data_rx))
+plt.plot(abs(expected_out - data_rx))
 
 plt.show()

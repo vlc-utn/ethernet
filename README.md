@@ -218,7 +218,7 @@ make
 
 En la carpeta "temp", se van a crear todos los archivos "template" del proyecto de Vivado, que luego vamos a poder usar para modificar. Importante! Incluir la carpeta "cores", que incluye la compilación de los Ip Cores que usa el proyecto de Vivado.
 
-Para generar los proyectos "vlc_tx" y "vlc_rx", se copio la carpeta "playground" dentro de "projects", y se cambió el nombre del proyecto en el Makefile correspondiente.
+Para generar los proyectos "vlc_tx" y "vlc_rx", se copio la carpeta "playground" dentro de "projects", y se cambió el nombre del proyecto en el Makefile correspondiente. Nota: los IP Cores de Red Pitaya Notes **nuevos**, es decir que no estuvieran compilados en el proyecto, generan errores. Se recomienda armar todo el código desde la carpeta de Red-Pitaya-Notes, y luego copiar el resultado en este repositorio.
 
 Luego de hacer las modificaciones pertinentes en el proyecto, al generar el bitstream este aparece dentro de `vivado_project/vivado_project.runs.impl_1/block_design.bit`, donde "vivado_project", y "block_design" son los nombres homónimos.
 
@@ -228,7 +228,7 @@ reg3[159:128], reg2[127:96], reg1[95:64] reg0[63:32]
 
 | 31 | 30 | 29 | 28 | 27 | 26 | 25 | 24 | 23 | 22 | 21 | 20 | 19 | 18 | 17 | 16 |
 |:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-|  x |  x |  x |  x |  x |  x |  x |  x |  x |  x |  x |  x |  x |  x |  fifo_out_ready |  new_frame |
+|  x |  x |  x |  x |  x |  x |  header_ack |  in_sel |  x |  x |  x |  x |  x |  x |  fifo_out_ready |  new_frame |
 
 | 15 | 14 | 13 | 12 | 11 | 10 | 9 |   8  |   7  |   6  |   5  |   4  |   3  |   2  |   1  |   0  |
 |:--:|:--:|:--:|:--:|:--:|:--:|:-:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|
@@ -240,43 +240,8 @@ reg3[191:160]; reg2[159:128]; reg1[127:96]; reg0[95:64]
 
 fifoSize[63:32]
 
-zeros[31:1]
+zeros[31:16]
 
-tx_msg_ready[0:0]
-
-## Pruebas
-
-### Pruebas con TX
-
-Todas las versiones del TX funcionan igual que las pruebas anteriores. Algunos comentarios luego de varias iteraciones:
-
-  - Las interfaces del AXI HUB tienen como puerto los address descriptos en https://pavel-demin.github.io/red-pitaya-notes/axi-hub. Según si se quiere leer/escribir es la interfaz master o slave que usa.
-  
-  - El tamaño de los registros de status y configuración se puede cambiar editando el bloque del AXI HUB siempre en múltiplos de 32 bits.
-
-  - Para usar estos registros, en sus respectivos puertos y con read y write, cada 32 bits de un registro es un valor de 4 en el valor de address. Es decir, para escribir en el 2° registro de 32 bits de configuración se usa el port=0 y address=4.
-
-  - Asegurarse que las FIFOs tengan tamaños correctos para poder leer mensajes completos, siempre de a uno.
-
-  - El modo de implementación de lectura es con un while loop se lee el valor del registro de status correspondiente a la FIFO que se quiera leer y una vez que ese valor supera la cantidad de muestras que espero que tenga el mensaje, ahí utilizo la función de read para leer el mensaje completo desde la FIFO ya que esta función lee hasta que la FIFO esté vacía, no se le indica cuanto debe leer.
-
-  - El reset se hace una sola vez antes de iniciar utilizando el 1° registro de 32 bits de configuración, utilizando solamente el 1° bit. No se usa la función edge porque pasa por el reset del sistema, no va directo a cada bloque.
-
-  - El 2° registro de configuración de 32 bits se usa para indicar el 'new frame in'.
-
-  - Los registros 3 y 4 de configuración se utilizan para cargar los valores de 'reg0' y 'reg1' del transmisor, respectivamente.
-
-  - Todas las lecturas se guardan en archivos de texto para luego ser impresas con el *script print_from_file.py* para no graficar en runtime. La función *compare_files_v1* compara lecturas del ADC y de la FIFO y muestra la diferencia. La función *compare_and_plot_binary_files* compara el archivo data_out.mem con cualquiera de las 2 lecturas, FIFO o ADC. Se recomienda cambiar el nombre de los archivos de salida en las distintas iteraciones, modificar la variable 'base_filename'.
-
-  - Se puede utilizar la función de requests para no tener que acceder cada vez a la página de playground, pero falla ingresando varias veces. Se recomienda mover el script *start.sh* desde playground al root de la SD de la Red Pitaya para programarlo solo al bootear.
-
-
-## Diseño en Vivado
-
-### FIFO Loopback
-
-![Alt text](images/Vivado_FIFO_loopback.png)
-
-### ADC Loopback
-
-![Alt text](images/Vivado_ADC_loopback.png)
+| 15 | 14 | 13 | 12 | 11 | 10 |    9    |    8    | 7 | 6 | 5 | 4 | 3 | 2 | 1 |     0    |
+|:--:|:--:|:--:|:--:|:--:|:--:|:-------:|:-------:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:--------:|
+|  x |  x |  x |  x |  x |  x | h_error | h_ready | x | x | x | x | x | x | x | tx_ready |
