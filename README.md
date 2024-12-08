@@ -224,11 +224,15 @@ Luego de hacer las modificaciones pertinentes en el proyecto, al generar el bits
 
 ## Registros de configuración
 
+zeros[191:176]
+
+tx_bram_size[171:160]
+
 reg3[159:128], reg2[127:96], reg1[95:64] reg0[63:32]
 
 | 31 | 30 | 29 | 28 | 27 | 26 | 25 | 24 | 23 | 22 | 21 | 20 | 19 | 18 | 17 | 16 |
 |:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-|  x |  x |  x |  x |  x |  x |  header_ack |  in_sel |  x |  x |  x |  x |  x |  x |  fifo_out_ready |  new_frame |
+|  x |  x |  x |  x |  x |  x |  header_ack |  in_sel |  x |  x |  x |  x |  2times_vlc_tx |  out_sel |  enable_fifo_out |  new_frame |
 
 | 15 | 14 | 13 | 12 | 11 | 10 | 9 |   8  |   7  |   6  |   5  |   4  |   3  |   2  |   1  |   0  |
 |:--:|:--:|:--:|:--:|:--:|:--:|:-:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|

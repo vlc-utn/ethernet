@@ -3,6 +3,7 @@ import numpy as np
 from binary import *
 from time import sleep
 from constants import *
+import matplotlib.pyplot as plt
 
 class RedPitayaGeneric(PyhubTCP):
     def __init__(self, bitstream, host="10.42.0.172", port=1001):
@@ -19,21 +20,6 @@ class RedPitayaGeneric(PyhubTCP):
         print("Programming bitsteam file: %s ...", bitstream)
         self.program(bitstream)
 
-        # Control registers
-        self.led_status = np.zeros(1, np.uint8)
-        self.tx_control = np.zeros(1, np.uint8)
-        self.rx_control = np.zeros(1, np.uint8)
-        self.general_control = np.zeros(1, np.uint8)
-        self.general_control[0] = set_bit(self.general_control[0], 0) # Reset is nrst
-
-        # Reset state is last, the order here is important
-        self.write(self.led_status, port=Ports.CONFIG, addr=CfgAddr.LEDS)
-        self.write(self.tx_control, port=Ports.CONFIG, addr=CfgAddr.TX_CONTROL)
-        self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
-        self.write(self.general_control, port=Ports.CONFIG, addr=CfgAddr.GENERAL_CONTROL)
-
-        # Turn on Power On LED and reset
-        self.write_led(Leds.POWER_ON, True)
         self.reset()
         print("Connection established!")
 
@@ -70,13 +56,24 @@ class RedPitayaGeneric(PyhubTCP):
 
     def reset(self):
         """Resets IP cores"""
-        # Turn of an on the power ON LED
-        self.write_led(Leds.POWER_ON, False)
-        self.general_control[0] = clear_bit(self.general_control[0], 0)
+
+        # Set all control register to default values
+        self.general_control = np.zeros(1, np.uint8)
+        self.led_status = np.zeros(1, np.uint8)
+        self.tx_control = np.zeros(1, np.uint8)
+        self.rx_control = np.zeros(1, np.uint8)
+
         self.write(self.general_control, port=Ports.CONFIG, addr=CfgAddr.GENERAL_CONTROL)
+        self.write(self.led_status, port=Ports.CONFIG, addr=CfgAddr.LEDS)
+        self.write(self.tx_control, port=Ports.CONFIG, addr=CfgAddr.TX_CONTROL)
+        self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
+
+        # Wait a little, and then put the reset to high (nrst, reset is active low)
         sleep(0.01)
         self.general_control[0] = set_bit(self.general_control[0], 0)
         self.write(self.general_control, port=Ports.CONFIG, addr=CfgAddr.GENERAL_CONTROL)
+
+        # Turn on Power On LED
         self.write_led(Leds.POWER_ON, True)
 
     def __del__(self):
@@ -92,15 +89,49 @@ class RedPitayaTx(RedPitayaGeneric):
     def __init__(self, bitstream, host="10.42.0.172", port=1001):
         RedPitayaGeneric.__init__(self, bitstream, host, port)
 
-    def write_vlc_tx(self, data: np.ndarray, regs: np.ndarray):
-        """Writes a frame to the VLC_TX"""
+    def write_vlc_tx(self, data: np.ndarray, regs: np.ndarray,
+                     two_times:bool=False, delay_ms=5000):
+        """Writes a frame to the VLC_TX
+
+        Word length of data written must be 32 bits
+        """
+        if (not (type(data[0]) == np.uint32 or type(data[0]) == np.int32)):
+            raise Exception("Data written to the Red Pitaya must be of 32 bits")
+
         self.write_registers(regs)
-        if(self.wait_for_msg_ready() == False):
-            print("Error: msg_ready was not asserted")
-            return
+        self.use_ofdm(True)
+        self.use_two_times(two_times)
+        if(self.wait_for_msg_ready(delay_ms) == False):
+            raise Exception("Error: msg_ready was not asserted")
 
         self.write(data, port=Ports.VLC_TX, addr=0)
         self.start_tx()
+
+
+    def use_ofdm(self, state: bool):
+        """Enable or disable OFDM output
+
+        If "enabled", the DAC is connected to the output of the OFDM. If 
+        "disabled", the DAC is connected to the periodic signal.
+        """
+        if (state == False):
+            self.tx_control[0] = set_bit(self.tx_control[0], 2)
+        else:
+            self.tx_control[0] = clear_bit(self.tx_control[0], 2)
+
+        self.write(self.tx_control, port=Ports.CONFIG, addr=CfgAddr.TX_CONTROL)
+
+    def use_two_times(self, state: bool):
+        """Multiply the output of the VLC Tx by two
+
+        If "enabled", the VLC TX output is shifted left by one bit.
+        """
+        if (state == True):
+            self.tx_control[0] = set_bit(self.tx_control[0], 3)
+        else:
+            self.tx_control[0] = clear_bit(self.tx_control[0], 3)
+
+        self.write(self.tx_control, port=Ports.CONFIG, addr=CfgAddr.TX_CONTROL)
 
     def enable_tx_fifo(self, state: bool):
         """Enable or disable Tx FIFO
@@ -146,25 +177,87 @@ class RedPitayaTx(RedPitayaGeneric):
 
         return buffer
 
-    def wait_for_msg_ready(self) -> bool:
+    def wait_for_msg_ready(self, delay_ms:int = 5000) -> bool:
         """Waits for the Tx to be ready to receive a new msg
 
-        Waits up to 5 secs, returns "True" if a new msg can be sent.
+        Waits up to "delay_ms" milliseconds secs, returns "True" if a new msg can be sent.
         """
         i = 0
-        while( not (self.read_status(address=StsAddr.TX_STS) & 0x1) or i == 500):
-            sleep(0.01)
+        while( not (self.read_status(address=StsAddr.TX_STS) & 0x1) or i == delay_ms):
+            sleep(0.001)
             i = i + 1
 
         return i!=500
 
-    def test_tx(self):
+    def write_periodic_waveform(self, data: np.ndarray, plot:bool=False):
+        """Writes a periodic waveform to the DAC
+
+        Data written should be 32 bits long, but only the 16 LSB bits will be used.
+        """
+
+        if (len(data) > TX_PERIODIC_WAVEFORM_SIZE):
+            raise Exception(f"Data of periodic waveform shouldn't be greater than {TX_PERIODIC_WAVEFORM_SIZE}")
+
+        # Write length of the data to control register (must be len -1)
+        length = np.zeros(1, np.uint16)
+        length[0] = len(data) - 1
+        self.write(length, port=Ports.CONFIG, addr=CfgAddr.TX_PERIODIC_SIZE)
+
+        self.use_ofdm(False)
+        self.write(data, port=Ports.PERIODIC_TX, addr=0)
+
+        if (plot):
+            # Enable Fifo, wait until enough values are processed, and then read
+            self.enable_tx_fifo(True)
+            sleep(1)
+            self.enable_tx_fifo(False)
+            data_fifo = self.read_tx_fifo()
+
+            fig1 = plt.figure()
+            plt.title("Periodic Waveform")
+
+            plt.subplot(2,1,1)
+            plt.plot(data)
+            plt.xlabel("Samples")
+            plt.ylabel("Reference signal")
+            plt.grid(True)
+
+            plt.subplot(2,1,2)
+            plt.plot(data_fifo)
+            plt.xlabel("Samples")
+            plt.ylabel("Signal before DAC")
+            plt.grid(True)
+
+    def test_tx(self, waveform_file:str="waveforms/waveform_sin_1mhz.mem",
+                plot_periodic:bool=False, plot_tx:bool=False):
         """Test the correct functionality of the Tx, before DAC"""
 
+        self.reset()
         print("Starting test of VLC_TX...")
+
+        print("Testing periodic waveform...")
+        data_in = read_binary_file(waveform_file, np.int32, True)
+        self.write_periodic_waveform(data_in, plot=plot_periodic)
+
+        # Disable Fifo, and read current data
+        self.enable_tx_fifo(True)
+        sleep(1)
+        self.enable_tx_fifo(False)
+        data_fifo = self.read_tx_fifo()
+
+        # Test that the waveform matches periodically
+        for i in range(0, len(data_in)):
+            if(np.array_equal(data_in, data_fifo[i : len(data_in)+i : 1])):
+                # Test that the data of the next period also matches
+                if (np.array_equal(data_in, data_fifo[len(data_in)+i : 2*len(data_in) + i : 1])):
+                    print("Periodic Waveform matches!")
+                    break
+        if (i == len(data_in) - 1):
+            raise Exception("Periodic Waveform Failed!")
+
         self.reset()
 
-        # These values are the ones used for the test
+        # These register values are the ones used for the test
         regs_tx = np.zeros(4, np.uint32)
         regs_tx[0] = 147
         regs_tx[1] = 17
@@ -175,28 +268,54 @@ class RedPitayaTx(RedPitayaGeneric):
         regs_rx = self.read_registers()
 
         if(not np.array_equal(regs_tx, regs_rx)):
-            print("Error while writing and reading registers")
-            print("Tx registers:")
-            print(regs_tx)
-            print("Rx registers")
-            print(regs_rx)
-            return
+            raise Exception("Error while writing and reading registers")
 
         print("Registers correctly written!")
 
-        data_tx = read_binary_file("mem_files/data_in_tx.mem", dtype=np.int16, signed=True)
+        # The data sent to the IP Core must be an int32 or uint32
+        data_in = read_binary_file("mem_files/data_in_tx.mem", dtype=np.uint32, signed=False)
+        expected_out = read_binary_file("mem_files/data_out_tx.mem", dtype=np.int16, signed=True)
 
+        # Send and read 5 times the same message
         self.enable_tx_fifo(True)
-        for _ in range(1):
-            self.write_vlc_tx(data_tx, regs_tx)
-            assert(self.wait_for_msg_ready())
-            data_rx = self.read_tx_fifo()
-            assert(np.array_equal(data_tx, data_rx))
+        for i in range(5):
+            if (i > 2):
+                # Test normal
+                self.write_vlc_tx(data_in, regs_tx)
+                assert(self.wait_for_msg_ready())
+                data_out = self.read_tx_fifo()
+                assert(np.array_equal(expected_out, data_out))
+            else:
+                # Test two times
+                self.write_vlc_tx(data_in, regs_tx, True)
+                assert(self.wait_for_msg_ready())
+                data_out = self.read_tx_fifo()
+                assert(np.array_equal(expected_out*2, data_out))
 
         self.enable_tx_fifo(False)
-        print("Test successful!")
+        if (plot_tx):
+            fig2 = plt.figure()
+            plt.title("VLC TX Waveform")
+            plt.subplot(3,1,1)
+            plt.plot(expected_out)
+            plt.xlabel("Samples")
+            plt.ylabel("Expected Output")
+            plt.grid(True)
 
-        return data_rx
+            plt.subplot(3,1,2)
+            plt.plot(data_out)
+            plt.xlabel("Samples")
+            plt.ylabel("Output")
+            plt.grid(True)
+
+            plt.subplot(3,1,3)
+            plt.plot(abs(expected_out - data_out))
+            plt.xlabel("Samples")
+            plt.ylabel("Error signal")
+            plt.grid(True)
+
+        print("Test successful!")
+        plt.show()
 
     def __del__(self):
         RedPitayaGeneric.__del__(self)

@@ -29,11 +29,11 @@ def read_binary_file(filename: str, dtype=np.int32, signed=True) -> np.ndarray:
     with open(filename, 'r') as file:
         line_count = sum(1 for lines in file)
 
-    data = np.zeros(line_count, dtype=np.int32)
+    data = np.zeros(line_count, dtype=dtype)
     with open(filename, "r") as file:
         i = 0
         for line in file:
             data[i] = bin2dec(line.strip(" \n,"), signed)
             i = i + 1
 
-    return data
+    return data.astype(dtype)

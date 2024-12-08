@@ -3,8 +3,8 @@ from enum import IntEnum
 # Red Pitaya Leds
 class Leds(IntEnum):
     POWER_ON = 0    # Power On LED
-    LED1 = 1
-    LED2 = 2
+    TX_PERIODIC = 1
+    VLC_TX = 2
     LED3 = 3
     LED4 = 4
     LED5 = 5
@@ -20,6 +20,7 @@ class CfgAddr(IntEnum):
     REG1_CFG = 8            # Reg1
     REG2_CFG = 12           # Reg2
     REG3_CFG = 16           # Reg3
+    TX_PERIODIC_SIZE = 20   # Periodic Waveform Size
 
 class StsAddr(IntEnum):
     TX_STS = 0              # Tx Status
@@ -32,11 +33,13 @@ class StsAddr(IntEnum):
 
 # IX allows to read s0x_axis, and write to b0x_bram and m0x_axis
 class Ports(IntEnum):
-    CONFIG = 0      #cfg_data
-    STATUS = 1      #sts_data
-    VLC_TX = 2      #I0 (s00_axis, b00_bram, m00_axis)
-    VLC_RX = 3      #I1 (s01_axis, b01_bram, m01_axis)
-    PORT_I2 = 4     #I2 (s02_axis, b02_bram, m02_axis)
-    PORT_I3 = 5     #I3 (s03_axis, b03_bram, m03_axis)
-    PORT_I4 = 6     #I4 (s04_axis, b04_bram, m04_axis)
-    PORT_I5 = 7     #I5 (s05_axis, b05_bram, m05_axis)
+    CONFIG = 0          #cfg_data
+    STATUS = 1          #sts_data
+    VLC_TX = 2          #I0 (s00_axis, b00_bram, m00_axis)
+    VLC_RX = 3          #I1 (s01_axis, b01_bram, m01_axis)
+    PERIODIC_TX = 4     #I2 (s02_axis, b02_bram, m02_axis)
+    PORT_I3 = 5         #I3 (s03_axis, b03_bram, m03_axis)
+    PORT_I4 = 6         #I4 (s04_axis, b04_bram, m04_axis)
+    PORT_I5 = 7         #I5 (s05_axis, b05_bram, m05_axis)
+
+TX_PERIODIC_WAVEFORM_SIZE = 4096
