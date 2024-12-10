@@ -5,9 +5,9 @@ class Leds(IntEnum):
     POWER_ON = 0    # Power On LED
     TX_PERIODIC = 1
     VLC_TX = 2
-    LED3 = 3
-    LED4 = 4
-    LED5 = 5
+    VLC_RX = 3
+    HEADER_ERROR = 4
+    HEADER_READY = 5
     LED6 = 6
     LED7 = 7
 

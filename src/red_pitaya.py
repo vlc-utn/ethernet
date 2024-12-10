@@ -14,10 +14,10 @@ class RedPitayaGeneric(PyhubTCP):
         """
         PyhubTCP.__init__(self, host, port)
 
-        print("Trying to connect to Red Pitaya in address %s ...", host)
+        print(f"Trying to connect to Red Pitaya in address {host}:{port} ...")
         self.start()
 
-        print("Programming bitsteam file: %s ...", bitstream)
+        print(f"Programming bitsteam file: {bitstream} ...")
         self.program(bitstream)
 
         self.reset()
@@ -183,11 +183,11 @@ class RedPitayaTx(RedPitayaGeneric):
         Waits up to "delay_ms" milliseconds secs, returns "True" if a new msg can be sent.
         """
         i = 0
-        while( not (self.read_status(address=StsAddr.TX_STS) & 0x1) or i == delay_ms):
+        while( not ((self.read_status(address=StsAddr.TX_STS) & 0x1) or (i == delay_ms))):
             sleep(0.001)
             i = i + 1
 
-        return i!=500
+        return i != delay_ms
 
     def write_periodic_waveform(self, data: np.ndarray, plot:bool=False):
         """Writes a periodic waveform to the DAC
@@ -336,23 +336,29 @@ class RedPitayaRx(RedPitayaGeneric):
 
         self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
 
-    def read_vlc_rx(self) -> list:
+    def read_vlc_rx(self, wait_for_ms=10000) -> list:
+        """Read VLC RX
+
+        Returns the registers and the data read, or an empty list in case of
+        error
+        """
+        self.use_adc(True)
+
         # Wait until the registers are safe to read (header_ready y no header_error)
-        for i in range(10000):
+        for i in range(wait_for_ms):
             (header_ready, header_error) = self.read_header_status()
             if (header_error):
-                print("Header was received with error. Resetting and exiting...")
+                print("Message was received with error")
                 self.reset()
-                return
-
-            if (header_ready):
+                return []
+            elif (header_ready):
                 break
             else:
-                sleep(0.01)
+                sleep(0.001)
 
-        if (i==499):
+        if (i==wait_for_ms-1):
             print("Timeout reached while waiting for read")
-            return
+            return []
 
         # Read registers, knowing that they are valid now
         regs = self.read_registers()
@@ -363,7 +369,7 @@ class RedPitayaRx(RedPitayaGeneric):
         return [regs, data]
 
 
-    def test_rx(self) -> np.ndarray:
+    def test_rx(self, plot:bool=False) -> np.ndarray:
         """Test Functionality of the RX
         """
         self.reset()
@@ -371,27 +377,35 @@ class RedPitayaRx(RedPitayaGeneric):
         print("Testing that the block doesn't trigger when idle...")
         (header_ready, header_error) = self.read_header_status()
         assert(header_ready == False and header_error == False)
-        sleep(10)
+        sleep(2)
         (header_ready, header_error) = self.read_header_status()
         assert(header_ready == False and header_error == False)
-        print("Idle didn't trigger")
 
-        # Write RF data
+
+        # Input
+        data_rf = read_binary_file("mem_files/data_in_rx.mem", dtype=np.int32, signed=True)
+
+        # Expected values
+        expected_regs = np.zeros(4, np.uint32)
+        expected_regs[0] = 105
+        expected_regs[1] = 3
+        expected_regs[2] = 65792
+        expected_regs[3] = 66063
+        expected_out = read_binary_file("mem_files/data_out_rx.mem", dtype=np.uint8, signed=False)
+
         for _ in range(5):
-            data_rf = read_binary_file("mem_files/data_in_rx.mem", dtype=np.int16, signed=True)
+            print("Testing reception of known frame...")
             self.write(data_rf, port=Ports.VLC_RX, addr=0)
-            sleep(1)
-            self.use_adc(False)
-            # Expected values
-            expected_regs = np.zeros(4, np.uint32)
-            expected_regs[0] = 105
-            expected_regs[1] = 3
-            expected_regs[2] = 65792
-            expected_regs[3] = 66063
-            expected_out = read_binary_file("mem_files/data_out_rx.mem", dtype=np.uint8, signed=False)
 
-            print("Checking that the header was received without errors")
-            sleep(1)
+            # Sleep until the data is fully written
+            sleep(0.1)
+
+            # Once the FIFO is full, enable it's reading, and wait until the VLC_RX
+            # processes the input
+            self.use_adc(False)
+            sleep(0.1)
+
+            print("Checking that the header was received without errors...")
             (header_ready, header_error) = self.read_header_status()
             assert(header_error == False)
             assert(header_ready == True)
@@ -406,19 +420,44 @@ class RedPitayaRx(RedPitayaGeneric):
             assert(np.array_equal(expected_out, data_rx))
             print("Data matches!")
 
-            self.use_adc(True)
         print("Test Successful!")
+
+        if (plot):
+            plt.subplot(3,1,1)
+            plt.plot(expected_out)
+            plt.title("Received signal")
+            plt.xlabel("Samples")
+            plt.ylabel("Expected output")
+            plt.grid(True)
+
+            plt.subplot(3,1,2)
+            plt.plot(data_rx)
+            plt.xlabel("Samples")
+            plt.ylabel("Output")
+            plt.grid(True)
+
+            plt.subplot(3,1,3)
+            plt.plot(abs(expected_out - data_rx))
+            plt.xlabel("Samples")
+            plt.ylabel("Error signal")
+            plt.grid(True)
+
+            plt.show()
         return data_rx
 
-    def read_rx_fifo(self, size: np.uint32) -> np.ndarray:
-        """Read RX values, returns uint8"""
-        for i in range(500):
-            if (self.read_fifo_count() == size):
-                break
+    def read_rx_fifo(self, size: np.uint32, delay_ms=5000) -> np.ndarray:
+        """Read RX values, returns uint8
 
-        if (i == 499):
-            print("Timeout reached while waiting for the Fifo Rx")
-            return
+        Waits until the "size" bytes are present in the fifo, and then reads
+        them. If there fewer than "size" bytes, then raises an exception
+        """
+        i = 0
+        while( not ((self.read_fifo_count() == size) or (i == delay_ms))):
+            sleep(0.001)
+            i = i + 1
+
+        if (i == delay_ms):
+            raise Exception("Timeout reached while waiting for the Fifo Rx")
 
         data = np.zeros(size, np.uint32)
         self.read(data, port=Ports.VLC_RX, addr=0)
