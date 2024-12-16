@@ -3,5 +3,4 @@ mati/*
 rp_notes/*
 vivado/*
 src/__*
-
 !vivado/*.zip

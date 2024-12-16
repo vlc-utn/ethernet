@@ -46,6 +46,13 @@ class RedPitayaGeneric(PyhubTCP):
 
     def read_registers(self) -> np.ndarray:
         """Read registers"""
+        # Signal to update registers from the FIFO (only applicable for RX)
+        self.rx_control[0] = set_bit(self.rx_control[0], 1)
+        self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
+        self.rx_control[0] = clear_bit(self.rx_control[0], 1)
+        self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
+
+        # Read registers
         regs = np.zeros(4, np.uint32)
         self.read(regs, port=Ports.STATUS, addr=StsAddr.REG0_STS)
         return regs
@@ -70,7 +77,8 @@ class RedPitayaGeneric(PyhubTCP):
 
         # Wait a little, and then put the reset to high (nrst, reset is active low)
         sleep(0.01)
-        self.general_control[0] = set_bit(self.general_control[0], 0)
+        self.general_control[0] = set_bit(self.general_control[0], 0)   # nRst
+        self.general_control[0] = set_bit(self.general_control[0], 1)   # nRstRxFifo
         self.write(self.general_control, port=Ports.CONFIG, addr=CfgAddr.GENERAL_CONTROL)
 
         # Turn on Power On LED
@@ -344,28 +352,25 @@ class RedPitayaRx(RedPitayaGeneric):
         """
         self.use_adc(True)
 
-        # Wait until the registers are safe to read (header_ready y no header_error)
-        for i in range(wait_for_ms):
-            (header_ready, header_error) = self.read_header_status()
-            if (header_error):
-                print("Message was received with error")
-                self.reset()
-                return []
-            elif (header_ready):
-                break
-            else:
-                sleep(0.001)
+        if (not self.frames_waiting()):
+            # Wait until the registers are safe to read (header_ready y no header_error)
+            for i in range(wait_for_ms):
+                if (self.read_header_error()):
+                    print("Message was received with error")
+                    self.reset()
+                    return []
+                elif (self.frames_waiting()):
+                    break
+                else:
+                    sleep(0.001)
 
-        if (i==wait_for_ms-1):
-            print("Timeout reached while waiting for read")
-            return []
+            if (i==wait_for_ms-1):
+                print("Timeout reached while waiting for read")
+                return []
 
         # Read registers, knowing that they are valid now
         regs = self.read_registers()
-        self.header_ack()
-
         data = self.read_rx_fifo(regs[0] - regs[1])
-
         return [regs, data]
 
 
@@ -375,12 +380,11 @@ class RedPitayaRx(RedPitayaGeneric):
         self.reset()
 
         print("Testing that the block doesn't trigger when idle...")
-        (header_ready, header_error) = self.read_header_status()
-        assert(header_ready == False and header_error == False)
+        assert(self.read_header_error() == False)
+        assert(not self.frames_waiting())
         sleep(2)
-        (header_ready, header_error) = self.read_header_status()
-        assert(header_ready == False and header_error == False)
-
+        assert(self.read_header_error() == False)
+        assert(not self.frames_waiting())
 
         # Input
         data_rf = read_binary_file("mem_files/data_in_rx.mem", dtype=np.int32, signed=True)
@@ -406,9 +410,8 @@ class RedPitayaRx(RedPitayaGeneric):
             sleep(0.1)
 
             print("Checking that the header was received without errors...")
-            (header_ready, header_error) = self.read_header_status()
-            assert(header_error == False)
-            assert(header_ready == True)
+            assert(self.read_header_error() == False)
+            assert(self.frames_waiting())
 
             print("Testing register values...")
             regs = self.read_registers()
@@ -445,6 +448,13 @@ class RedPitayaRx(RedPitayaGeneric):
             plt.show()
         return data_rx
 
+    def reset_rx_fifos(self):
+        """Reset Rx Fifos"""
+        self.general_control[0] = clear_bit(self.general_control[0], 1)   # nRstRxFifo
+        self.write(self.general_control, port=Ports.CONFIG, addr=CfgAddr.GENERAL_CONTROL)
+        self.general_control[0] = set_bit(self.general_control[0], 1)   # nRstRxFifo
+        self.write(self.general_control, port=Ports.CONFIG, addr=CfgAddr.GENERAL_CONTROL)
+
     def read_rx_fifo(self, size: np.uint32, delay_ms=5000) -> np.ndarray:
         """Read RX values, returns uint8
 
@@ -465,24 +475,18 @@ class RedPitayaRx(RedPitayaGeneric):
 
         return data
 
-    def read_header_status(self) -> tuple[bool, bool]:
-        """Read header_ready and header_error
+    def read_header_error(self) -> bool:
+        """Read header_error
 
         If header_error == '1', the header was received with errors
-        If header_ready == '1', then the registers have a valid value and can be read
         """
         data = np.zeros(1, np.uint8)
         data[0] = self.read_status(StsAddr.RX_STS)
-        (header_ready, header_error) = (data[0] & 0x01, data[0] &0x02)
-        return (header_ready, header_error)
+        return data[0] & 0x02
 
-    def header_ack(self):
-        """Send a header ack after reading the registers of the current symbol"""
-        self.rx_control[0] = set_bit(self.rx_control[0], 1)
-        self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
-        sleep(0.01)
-        self.rx_control[0] = clear_bit(self.rx_control[0], 1)
-        self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
+    def frames_waiting(self) -> np.uint8:
+        """Returns the amount of registers that are queued to be read"""
+        return self.read_status(StsAddr.RX_FIFO_REGS)
 
     def __del__(self):
         RedPitayaGeneric.__del__(self)

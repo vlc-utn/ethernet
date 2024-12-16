@@ -25,6 +25,7 @@ class CfgAddr(IntEnum):
 class StsAddr(IntEnum):
     TX_STS = 0              # Tx Status
     RX_STS = 1              # Rx Status
+    RX_FIFO_REGS = 2        # Amount of registers that are waiting to be read
     FIFO_SIZE = 4           # Size of debug FIFOs
     REG0_STS = 8
     REG1_STS = 12
