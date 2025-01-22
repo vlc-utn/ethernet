@@ -1,7 +1,7 @@
 from pyhubio import PyhubTCP
 import numpy as np
 from binary import *
-from time import sleep
+from time import sleep, time_ns
 from constants import *
 import matplotlib.pyplot as plt
 
@@ -32,9 +32,21 @@ class RedPitayaGeneric(PyhubTCP):
 
         self.write(self.led_status, port=Ports.CONFIG, addr=CfgAddr.LEDS)
 
-    def write_registers(self, regs: np.ndarray):
-        """Writes registers to config file"""
+    def write_registers(self, regs: np.ndarray, new_frame:bool=True):
+        """Writes registers to config file, and toggles reg valid"""
         self.write(regs, port=Ports.CONFIG, addr=CfgAddr.REG0_CFG)
+
+        # Toggle valid_reg bit, and set new_frame_in
+        self.tx_control[0] = toggle_bit(self.tx_control[0], 4)
+        if (new_frame):
+            self.tx_control[0] = set_bit(self.tx_control[0], 0)
+
+        self.write(self.tx_control, port=Ports.CONFIG, addr=CfgAddr.TX_CONTROL)
+
+        if (new_frame):
+            # Clear new_frame_in after writing the registers
+            self.tx_control[0] = clear_bit(self.tx_control[0], 0)
+            self.write(self.tx_control, port=Ports.CONFIG, addr=CfgAddr.TX_CONTROL)
 
     def read_status(self, address, dtype=np.uint8):
         """Read "dtype" bits of the status register and returns them.
@@ -56,6 +68,12 @@ class RedPitayaGeneric(PyhubTCP):
         regs = np.zeros(4, np.uint32)
         self.read(regs, port=Ports.STATUS, addr=StsAddr.REG0_STS)
         return regs
+
+    def read_register_count(self) -> np.uint8:
+        reg_count = np.zeros(1, np.uint8)
+        self.read(reg_count, port=Ports.STATUS, addr=StsAddr.TX_STS)
+        reg_count[0] = (reg_count[0] & 0b01111110) >> 1
+        return reg_count[0]
 
     def read_fifo_count(self) -> np.uint32:
         """Returns amount of values stored in the FIFO"""
@@ -97,23 +115,17 @@ class RedPitayaTx(RedPitayaGeneric):
     def __init__(self, bitstream, host="10.42.0.172", port=1001):
         RedPitayaGeneric.__init__(self, bitstream, host, port)
 
-    def write_vlc_tx(self, data: np.ndarray, regs: np.ndarray,
-                     two_times:bool=False, delay_ms=5000):
+    def write_vlc_tx(self, data: np.ndarray, regs: np.ndarray) -> None:
         """Writes a frame to the VLC_TX
 
-        Word length of data written must be 32 bits
+        Word length of data written must be 32 bits.
+        Return "True" if a new frame had to be sent
         """
         if (not (type(data[0]) == np.uint32 or type(data[0]) == np.int32)):
             raise Exception("Data written to the Red Pitaya must be of 32 bits")
 
-        self.write_registers(regs)
-        self.use_ofdm(True)
-        self.use_two_times(two_times)
-        if(self.wait_for_msg_ready(delay_ms) == False):
-            raise Exception("Error: msg_ready was not asserted")
-
         self.write(data, port=Ports.VLC_TX, addr=0)
-        self.start_tx()
+        self.write_registers(regs)
 
 
     def use_ofdm(self, state: bool):
@@ -153,19 +165,6 @@ class RedPitayaTx(RedPitayaGeneric):
         else:
             self.tx_control[0] = clear_bit(self.tx_control[0], 1)
 
-        self.write(self.tx_control, port=Ports.CONFIG, addr=CfgAddr.TX_CONTROL)
-
-    def start_tx(self):
-        """Signal that a new Tx message is ready to be sent
-
-        Call this function after having loaded the data to be transmitted,
-        so that the transmission can start.
-        The new frame signal is like a pulse.
-        """
-        self.tx_control[0] = set_bit(self.tx_control[0], 0)
-        self.write(self.tx_control, port=Ports.CONFIG, addr=CfgAddr.TX_CONTROL)
-        sleep(0.01)
-        self.tx_control[0] = clear_bit(self.tx_control[0], 0)
         self.write(self.tx_control, port=Ports.CONFIG, addr=CfgAddr.TX_CONTROL)
 
     def read_tx_fifo(self) -> np.ndarray:
@@ -237,6 +236,8 @@ class RedPitayaTx(RedPitayaGeneric):
             plt.grid(True)
 
     def test_tx(self, waveform_file:str="waveforms/waveform_sin_1mhz.mem",
+                tx_input_file:str="mem_files/data_in_tx.mem",
+                tx_output_file:str="mem_files/data_out_tx.mem",
                 plot_periodic:bool=False, plot_tx:bool=False):
         """Test the correct functionality of the Tx, before DAC"""
 
@@ -247,7 +248,7 @@ class RedPitayaTx(RedPitayaGeneric):
         data_in = read_binary_file(waveform_file, np.int32, True)
         self.write_periodic_waveform(data_in, plot=plot_periodic)
 
-        # Disable Fifo, and read current data
+        # Enable FIFO, store some samples, disable FIFO and read what's stored
         self.enable_tx_fifo(True)
         sleep(1)
         self.enable_tx_fifo(False)
@@ -263,26 +264,32 @@ class RedPitayaTx(RedPitayaGeneric):
         if (i == len(data_in) - 1):
             raise Exception("Periodic Waveform Failed!")
 
-        self.reset()
-
         # These register values are the ones used for the test
+        self.reset()
+        assert(self.read_register_count() == 0)     # No registers on reset
+
         regs_tx = np.zeros(4, np.uint32)
         regs_tx[0] = 147
         regs_tx[1] = 17
         regs_tx[2] = 65792
         regs_tx[3] = 66063
 
-        self.write_registers(regs_tx)
+        self.write_registers(regs_tx, new_frame=False)
         regs_rx = self.read_registers()
+        assert(np.array_equal(regs_tx, regs_rx))    # Registers correctly written
+        assert(self.read_register_count() == 1)     # Register count updated
 
-        if(not np.array_equal(regs_tx, regs_rx)):
-            raise Exception("Error while writing and reading registers")
+        self.write_registers(regs_tx, new_frame=False); assert(self.read_register_count() == 2)
+        self.write_registers(regs_tx, new_frame=False); assert(self.read_register_count() == 3)
 
+        self.reset()
+        assert(self.read_register_count() == 0)
         print("Registers correctly written!")
 
         # The data sent to the IP Core must be an int32 or uint32
-        data_in = read_binary_file("mem_files/data_in_tx.mem", dtype=np.uint32, signed=False)
-        expected_out = read_binary_file("mem_files/data_out_tx.mem", dtype=np.int16, signed=True)
+        print("Testing signal transmission...")
+        data_in = read_binary_file(tx_input_file, dtype=np.uint32, signed=False)
+        expected_out = read_binary_file(tx_output_file, dtype=np.int16, signed=True)
 
         # Send and read 5 times the same message
         self.enable_tx_fifo(True)
@@ -295,10 +302,12 @@ class RedPitayaTx(RedPitayaGeneric):
                 assert(np.array_equal(expected_out, data_out))
             else:
                 # Test two times
-                self.write_vlc_tx(data_in, regs_tx, True)
+                self.use_two_times(True)
+                self.write_vlc_tx(data_in, regs_tx)
                 assert(self.wait_for_msg_ready())
                 data_out = self.read_tx_fifo()
                 assert(np.array_equal(expected_out*2, data_out))
+                self.use_two_times(False)
 
         self.enable_tx_fifo(False)
         if (plot_tx):
@@ -324,6 +333,32 @@ class RedPitayaTx(RedPitayaGeneric):
 
         print("Test successful!")
         plt.show()
+
+
+    def test_tx_speed(self) -> None:
+        """Test speed of writing the registers and data to the Red Pitaya"""
+        self.reset()
+
+        regs = np.zeros(4, np.uint32)
+        regs[0] = 4011
+        regs[1] = 0
+        regs[2] = 65792
+        regs[3] = 66063
+
+        # Data sizes to test speed
+        data_sizes = [105, 210, 504, 1008, 2016, 4011]
+
+        print("Speed test for single transactions...")
+        for size in data_sizes:
+            data_in = np.random.randint(0, 255, size, dtype=np.uint32)
+            regs[0] = size
+            time_start = time_ns()
+            self.write_vlc_tx(data_in, regs)
+            time_end = time_ns()
+            self.wait_for_msg_ready()
+            print(f"Time elapsed with size {size}: {(time_end - time_start)*1e-6} [ms])")
+
+        print("Speed test successful!")
 
     def __del__(self):
         RedPitayaGeneric.__del__(self)

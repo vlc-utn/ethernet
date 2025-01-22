@@ -22,6 +22,9 @@ def set_bit(value, bit):
 def clear_bit(value, bit):
     return value & ~(1<<bit)
 
+def toggle_bit(value, bit):
+    return value ^ (1<<bit)
+
 def read_binary_file(filename: str, dtype=np.int32, signed=True) -> np.ndarray:
     """Read binary file and return data
     """
