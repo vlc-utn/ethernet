@@ -58,13 +58,6 @@ class RedPitayaGeneric(PyhubTCP):
 
     def read_registers(self) -> np.ndarray:
         """Read registers"""
-        # Signal to update registers from the FIFO (only applicable for RX)
-        self.rx_control[0] = set_bit(self.rx_control[0], 1)
-        self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
-        self.rx_control[0] = clear_bit(self.rx_control[0], 1)
-        self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
-
-        # Read registers
         regs = np.zeros(4, np.uint32)
         self.read(regs, port=Ports.STATUS, addr=StsAddr.REG0_STS)
         return regs
@@ -96,7 +89,6 @@ class RedPitayaGeneric(PyhubTCP):
         # Wait a little, and then put the reset to high (nrst, reset is active low)
         sleep(0.01)
         self.general_control[0] = set_bit(self.general_control[0], 0)   # nRst
-        self.general_control[0] = set_bit(self.general_control[0], 1)   # nRstRxFifo
         self.write(self.general_control, port=Ports.CONFIG, addr=CfgAddr.GENERAL_CONTROL)
 
         # Turn on Power On LED
@@ -379,34 +371,37 @@ class RedPitayaRx(RedPitayaGeneric):
 
         self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
 
-    def read_vlc_rx(self, wait_for_ms=10000) -> list:
+    def read_status(self, valid_reg=False) -> list:
+        data = np.zeros(6, np.uint32)
+        if (valid_reg):
+            self.rx_control[0] = toggle_bit(self.rx_control[0], 1)
+            self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
+
+        self.read(data, port=Ports.STATUS, addr=0)
+        h_ready = bool(data[0] & (1 << 8))
+        h_error = bool(data[0] & (1 << 9))
+        reg_count = (data[0] >> 10) & 0x3f
+        data_size = data[1]
+        reg0 = data[2]
+        reg1 = data[3]
+        reg2 = data[4]
+        reg3 = data[5]
+        return [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error]
+
+    def read_vlc_rx(self) -> list:
         """Read VLC RX
 
         Returns the registers and the data read, or an empty list in case of
         error
         """
-        self.use_adc(True)
+        [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status(True)
+        size_to_read = reg0 - reg1
 
-        if (not self.frames_waiting()):
-            # Wait until the registers are safe to read (header_ready y no header_error)
-            for i in range(wait_for_ms):
-                if (self.read_header_error()):
-                    print("Message was received with error")
-                    self.reset()
-                    return []
-                elif (self.frames_waiting()):
-                    break
-                else:
-                    sleep(0.001)
+        if (data_size < size_to_read):
+            print("Warning! Size to be read is less than actual size")
 
-            if (i==wait_for_ms-1):
-                print("Timeout reached while waiting for read")
-                return []
-
-        # Read registers, knowing that they are valid now
-        regs = self.read_registers()
-        data = self.read_rx_fifo(regs[0] - regs[1])
-        return [regs, data]
+        data = self.read_rx_fifo(size_to_read)
+        return [data, reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error]
 
 
     def test_rx(self, plot:bool=False) -> np.ndarray:
@@ -415,11 +410,18 @@ class RedPitayaRx(RedPitayaGeneric):
         self.reset()
 
         print("Testing that the block doesn't trigger when idle...")
-        assert(self.read_header_error() == False)
-        assert(not self.frames_waiting())
+        [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status()
+        assert(h_error == False)
+        assert(reg_count == 0)
+        assert(data_size == 0)
         sleep(2)
-        assert(self.read_header_error() == False)
-        assert(not self.frames_waiting())
+        [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status()
+        assert(h_error == False)
+        assert(reg_count == 0)
+        assert(data_size == 0)
+
+        # Before requesting an update, the register values should be zero
+        assert(reg0 == 0)
 
         # Input
         data_rf = read_binary_file("mem_files/data_in_rx.mem", dtype=np.int32, signed=True)
@@ -432,8 +434,8 @@ class RedPitayaRx(RedPitayaGeneric):
         expected_regs[3] = 66063
         expected_out = read_binary_file("mem_files/data_out_rx.mem", dtype=np.uint8, signed=False)
 
+        print("Testing reception of known frame...")
         for _ in range(5):
-            print("Testing reception of known frame...")
             self.write(data_rf, port=Ports.VLC_RX, addr=0)
 
             # Sleep until the data is fully written
@@ -443,20 +445,27 @@ class RedPitayaRx(RedPitayaGeneric):
             # processes the input
             self.use_adc(False)
             sleep(0.1)
+            self.use_adc(True)
 
-            print("Checking that the header was received without errors...")
-            assert(self.read_header_error() == False)
-            assert(self.frames_waiting())
+            # Checking that the header was received without errors...
+            [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status(valid_reg=False)
+            assert(reg_count == 1)
 
-            print("Testing register values...")
-            regs = self.read_registers()
-            assert(np.array_equal(expected_regs, regs))
-            print("Registers match!")
+            # Reading info...
+            [data_rx, reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_vlc_rx()
+            assert(reg_count == 0)
+            assert(h_error == False)
+            assert(data_size == expected_regs[0] - expected_regs[1])
 
-            print("Reading info...")
-            [regs, data_rx] = self.read_vlc_rx()
+            [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status(valid_reg=False)
+            assert(data_size == 0)
+
+            # Testing register values...
+            assert(expected_regs[0] == reg0)
+            assert(expected_regs[1] == reg1)
+            assert(expected_regs[2] == reg2)
+            assert(expected_regs[3] == reg3)
             assert(np.array_equal(expected_out, data_rx))
-            print("Data matches!")
 
         print("Test Successful!")
 
@@ -483,45 +492,41 @@ class RedPitayaRx(RedPitayaGeneric):
             plt.show()
         return data_rx
 
-    def reset_rx_fifos(self):
-        """Reset Rx Fifos"""
-        self.general_control[0] = clear_bit(self.general_control[0], 1)   # nRstRxFifo
-        self.write(self.general_control, port=Ports.CONFIG, addr=CfgAddr.GENERAL_CONTROL)
-        self.general_control[0] = set_bit(self.general_control[0], 1)   # nRstRxFifo
-        self.write(self.general_control, port=Ports.CONFIG, addr=CfgAddr.GENERAL_CONTROL)
-
-    def read_rx_fifo(self, size: np.uint32, delay_ms=5000) -> np.ndarray:
+    def read_rx_fifo(self, size: np.uint32) -> np.ndarray:
         """Read RX values, returns uint8
 
         Waits until the "size" bytes are present in the fifo, and then reads
         them. If there fewer than "size" bytes, then raises an exception
         """
-        i = 0
-        while( not ((self.read_fifo_count() == size) or (i == delay_ms))):
-            sleep(0.001)
-            i = i + 1
-
-        if (i == delay_ms):
-            raise Exception("Timeout reached while waiting for the Fifo Rx")
-
         data = np.zeros(size, np.uint32)
         self.read(data, port=Ports.VLC_RX, addr=0)
         data = data.astype(np.uint8)
 
         return data
 
-    def read_header_error(self) -> bool:
-        """Read header_error
+    def test_rx_speed(self) -> None:
+        self.reset()
 
-        If header_error == '1', the header was received with errors
-        """
-        data = np.zeros(1, np.uint8)
-        data[0] = self.read_status(StsAddr.RX_STS)
-        return data[0] & 0x02
+        data_rf = read_binary_file("mem_files/data_in_rx.mem", dtype=np.int32, signed=True)
 
-    def frames_waiting(self) -> np.uint8:
-        """Returns the amount of registers that are queued to be read"""
-        return self.read_status(StsAddr.RX_FIFO_REGS)
+        for _ in range(0,10):
+            self.write(data_rf, port=Ports.VLC_RX, addr=0)
+
+            # Sleep until the data is fully written
+            sleep(0.1)
+
+            # Once the FIFO is full, enable it's reading, and wait until the VLC_RX
+            # processes the input
+            self.use_adc(False)
+            sleep(0.1)
+            self.use_adc(True)
+
+            time_start = time_ns()
+            [data_rx, reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_vlc_rx()
+            time_end = time_ns()
+            assert(reg0 != 0)
+            assert(h_error == False)
+            print(f"Time elapsed: {(time_end - time_start)*1e-6} [ms]")
 
     def __del__(self):
         RedPitayaGeneric.__del__(self)
