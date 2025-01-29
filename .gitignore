@@ -4,3 +4,6 @@ rp_notes/*
 vivado/*
 src/__*
 !vivado/*.zip
+*.mp4
+*.webm
+*.log

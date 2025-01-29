@@ -400,7 +400,10 @@ class RedPitayaRx(RedPitayaGeneric):
         if (data_size < size_to_read):
             print("Warning! Size to be read is less than actual size")
 
-        data = self.read_rx_fifo(size_to_read)
+        if (size_to_read):
+            data = self.read_rx_fifo(size_to_read)
+        else:
+            data = 0
         return [data, reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error]
 
 
