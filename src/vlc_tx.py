@@ -10,7 +10,7 @@ rp = RedPitayaTx(bitstream="bitstreams/vlc_tx.bit", host="rp-f09035.local")
 rp.test_tx( waveform_file="waveforms/waveform_sin_1mhz.mem",
             tx_input_file="mem_files/data_in_tx.mem",
             tx_output_file="mem_files/data_out_tx.mem",
-            plot_periodic=True, plot_tx=True)
+            plot_periodic=False, plot_tx=False)
 
 rp.test_tx_speed()
 

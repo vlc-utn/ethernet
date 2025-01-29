@@ -16,13 +16,13 @@ def bin2dec(binary_string: str, signed=True) -> int:
     decimal_positive = int(inverted, 2) + 1
     return -decimal_positive
 
-def set_bit(value, bit):
+def set_bit(value:np.uint32, bit:np.uint8):
     return value | (1<<bit)
 
-def clear_bit(value, bit):
+def clear_bit(value:np.uint32, bit:np.uint8):
     return value & ~(1<<bit)
 
-def toggle_bit(value, bit):
+def toggle_bit(value:np.uint32, bit:np.uint8):
     return value ^ (1<<bit)
 
 def read_binary_file(filename: str, dtype=np.int32, signed=True) -> np.ndarray:
