@@ -255,7 +255,10 @@ class PyhubTCP:
     def start(self):
         if self.socket:
             return
-        self.socket = socket.create_connection(self.address, 1)
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.socket.connect(self.address)
+        #self.socket = socket.create_connection(self.address, 1)
 
     def stop(self):
         if self.socket is None:

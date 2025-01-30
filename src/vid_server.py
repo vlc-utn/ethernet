@@ -31,7 +31,7 @@ class VideoServer:
         # Used to print metrics
         self.total_bytes_sent = 0
         self.frames_sent = 0
-        logging.basicConfig(filename='./video/server_log.log',level=logging.INFO, filemode="w")
+        logging.basicConfig(filename='./logs/server_log.log',level=logging.INFO, filemode="w")
         self.logger = logging.getLogger('VideoServer')
 
         self.rp = RedPitayaTx(bitstream=bitstream, host=host, port=port)
@@ -127,8 +127,11 @@ class VideoServer:
             packet, regs = self.prepare_packet(packet_data, packet_number, packets_in_frame)
 
             time_start = time.time_ns()
-            self.rp.write_vlc_tx(packet, regs)
+            self.rp.write_vlc_tx(packet.astype(np.uint32), regs)
             time.sleep(self.delay_per_package)
+            if(packet_number == packets_in_frame -1):
+                time.sleep(self.delay_per_package)
+                self.rp.reset()
             time_end = time.time_ns()
             print(f"Time elapsed: {(time_end - time_start)*1e-6} [ms])")
 
@@ -172,11 +175,11 @@ if __name__ == "__main__":
     PORT = 1001
     BITSTREAM = "bitstreams/vlc_tx.bit"
     #VIDEO_PATH = './video/CiroyLosPersas.mp4'       # Replace with video path
-    VIDEO_PATH = "./video/SampleVideo_1280x720_10mb.mp4"
+    VIDEO_PATH = "./videos/SampleVideo_1280x720_10mb.mp4"
     #VIDEO_PATH = "./video/1_hour_timer.webm"
     PACKET_SIZE = 4011
-    DELAY = 2e-3
-    COMPRESSION = 40
+    DELAY = 5e-3
+    COMPRESSION = 20
     DISPLAY_VIDEO = True
 
     server = VideoServer(host=HOST, port=PORT, bitstream=BITSTREAM,
