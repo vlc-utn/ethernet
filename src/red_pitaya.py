@@ -394,16 +394,28 @@ class RedPitayaRx(RedPitayaGeneric):
         Returns the registers and the data read, or an empty list in case of
         error
         """
-        [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status(True)
-        size_to_read = reg0 - reg1
+        tries = 0
+        data = 0
+        while True:
+            [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status(False)
+            size_to_read = reg0 - reg1
 
-        if (data_size < size_to_read):
-            print("Warning! Size to be read is less than actual size")
+            if (h_error):
+                print("H_ERROR!!!!!!")
+                break
+            elif (reg_count != 0 and size_to_read <= data_size):
+                [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status(True) 
+                size_to_read = reg0 - reg1
+                data = self.read_rx_fifo(size_to_read)
+                break
+            elif (tries == 100):
+                break
+            else:
+                sleep(1e-3)
+                tries += 1
 
-        if (size_to_read):
-            data = self.read_rx_fifo(size_to_read)
-        else:
-            data = 0
+        if (reg0):
+            print(f"reg0={reg0}, reg_count={reg_count}, data_size={data_size}")
         return [data, reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error]
 
 

@@ -4,7 +4,7 @@ import numpy as np
 from binary import *
 import matplotlib.pyplot as plt
 
-rp = RedPitayaTx(bitstream="bitstreams/vlc_tx.bit", host="rp-f09035.local")
+rp = RedPitayaTx(bitstream="bitstreams/vlc_tx.bit", host="rp-f09168.local")
 
 ### General functionality test
 rp.test_tx( waveform_file="waveforms/waveform_sin_1mhz.mem",

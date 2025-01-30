@@ -255,7 +255,10 @@ class PyhubTCP:
     def start(self):
         if self.socket:
             return
-        self.socket = socket.create_connection(self.address, 1)
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.socket.connect(self.address)
+        #self.socket = socket.create_connection(self.address, 1)
 
     def stop(self):
         if self.socket is None:
@@ -275,7 +278,7 @@ class PyhubTCP:
             mod = size % 65536
             if mod > 0:
                 rlen[-1] = mod
-            command = rlen << 28 | (port & 0x7) << 24 | (addr + incr) & 0xFFFFFF
+            command = (rlen << 28) | ((port & 0x7) << 24) | ((np.uint32(addr + incr) & np.uint32(0xFFFFFF)))
             self.socket.sendall(command.tobytes())
             offset = 0
             limit = view.size

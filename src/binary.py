@@ -20,7 +20,7 @@ def set_bit(value:np.uint32, bit:np.uint8):
     return value | (1<<bit)
 
 def clear_bit(value:np.uint32, bit:np.uint8):
-    return value & ~(1<<bit)
+    return value & ~np.uint32((1<<bit))
 
 def toggle_bit(value:np.uint32, bit:np.uint8):
     return value ^ (1<<bit)

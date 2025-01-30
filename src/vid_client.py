@@ -13,13 +13,14 @@ class VideoClient:
         self.frame_buffer = Queue(maxsize=500)
         self.initial_buffer_size = initial_buffer_size
 
-        logging.basicConfig(filename='./video/client_log.log', level=logging.INFO, filemode="w")
+        logging.basicConfig(filename='logs/client_log.log', level=logging.INFO, filemode="w")
         self.logger = logging.getLogger('VideoClient')
 
         self.rp = RedPitayaRx(bitstream=bitstream, host=host, port=port)
 
     def receive_frame_packets(self):
         """Receive and process incoming packets"""
+        receiving_frame = False
         while True:
             time_start = time.time_ns()
             # Read registers
@@ -31,55 +32,67 @@ class VideoClient:
                 fps = (((reg2 >> 8) & 0b111) << 2) | (reg2 & 0b11)
                 self.time_per_frame = 1/fps
 
-                if (packet_number == 0):
+                # TODO Erase print
+                print(f"Packet: {packet_number}/{packets_in_frame-1}")
+
+                if (packet_number == 0 and not receiving_frame):
+                    receiving_frame = True
                     current_frame_data = data
-                elif (current_frame_data):
+                elif (receiving_frame):
+                    # TODO: missing frame handling
                     current_frame_data = np.hstack([current_frame_data, data])
 
-                if (packet_number == packets_in_frame - 1 and current_frame_data):
-                    frame = cv2.imdecode(current_frame_data, cv2.IMREAD_COLOR)
-                    current_frame_data = None
-                    self.frame_buffer.put(frame)
+                    if (packet_number == packets_in_frame - 1):
+                        frame = cv2.imdecode(current_frame_data, cv2.IMREAD_COLOR)
+                        current_frame_data = None
+                        receiving_frame = False
+                        if (frame is not None):
+                            self.frame_buffer.put(frame)
+                        else:
+                            print("INVALID IMAGE")
+                            self.logger.error("INVALID IMAGE")
+                            self.rp.reset()
 
                 time_end = time.time_ns()
                 print(f"Time elapsed: {(time_end - time_start)*1e-6} [ms])")
 
     def display_frames(self):
         """Optimized display loop with strict timing"""
-        try:
-            self.logger.info("Waiting for initial buffer fill...")
+        self.logger.info("Waiting for initial buffer fill...")
 
-            cv2.namedWindow('Video client', cv2.WINDOW_NORMAL)
-            cv2.moveWindow('Video client', 1100, 150)
-            cv2.resizeWindow('Video client', 750, 750)
+        cv2.namedWindow('Video client', cv2.WINDOW_NORMAL)
+        cv2.moveWindow('Video client', 1100, 150)
+        cv2.resizeWindow('Video client', 750, 750)
 
-            # Wait for a little of the buffer to fill before starting to display
-            print("Waiting for transmissions...")
-            while (self.frame_buffer.qsize() < self.initial_buffer_size):
-                time.sleep(1e-3)
-            print("Transmissions received")
+        # Wait for a little of the buffer to fill before starting to display
+        print("Waiting for transmissions...")
+        while (self.frame_buffer.qsize() < self.initial_buffer_size):
+            time.sleep(1e-3)
+        print("Transmissions received")
 
-            while True:
-                try:
-                    frame = self.frame_buffer.get(timeout=2)
-                except Empty:
-                    break
+        while True:
+            try:
+                frame = self.frame_buffer.get(timeout=10)
+            except Empty:
+                self.logger.warning("Empty frame_buffer queue. No more frames to display.")
+                break
 
-                previous_frame_time = time.time()
-                cv2.imshow('Video client', frame)
+            previous_frame_time = time.time()
+            try:
+                cv2.imshow("Video client", frame)
+            except Exception as e:
+                print("Error showing frame")
+                self.logger.error(f"Error in display loop: {e}")
+                cv2.waitKey(10)
+                continue
 
-                if (self.time_per_frame > time.time() - previous_frame_time):
-                    time.sleep(abs(self.time_per_frame - (time.time() - previous_frame_time)))
+            if (self.time_per_frame > time.time() - previous_frame_time):
+                time.sleep(abs(self.time_per_frame - (time.time() - previous_frame_time)))
 
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
-                print(self.frame_buffer.qsize())
-
-        except Exception as e:
-            self.logger.error(f"Error in display loop: {e}")
-        finally:
-            cv2.destroyAllWindows()
+        cv2.destroyAllWindows()
 
     def run(self):
         """Main client loop"""
@@ -93,10 +106,10 @@ class VideoClient:
         print("\nPlayback complete!")
 
 if __name__ == "__main__":
-    HOST = "rp-f09035.local"
+    HOST = "rp-f09168.local"
     PORT = 1001
     BITSTREAM = "bitstreams/vlc_rx.bit"
-    INIT_BUFFER_SIZE = 100
+    INIT_BUFFER_SIZE = 10
 
     client = VideoClient(host=HOST, port=PORT, bitstream=BITSTREAM, initial_buffer_size=INIT_BUFFER_SIZE)
     client.run()
