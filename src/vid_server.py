@@ -31,6 +31,7 @@ class VideoServer:
         # Used to print metrics
         self.total_bytes_sent = 0
         self.frames_sent = 0
+        self.tx_time = 0
         logging.basicConfig(filename='./logs/server_log.log',level=logging.INFO, filemode="w")
         self.logger = logging.getLogger('VideoServer')
 
@@ -142,9 +143,7 @@ class VideoServer:
             if (self.delay_per_package > time.time() - time_last_packet):
                     time.sleep(abs(self.delay_per_package - (time.time() - time_last_packet)))
 
-            # TODO
-            #print(f"Time elapsed: {(time.time() - time_last_packet)*1e3} [ms])")
-
+            self.tx_time = time.time() - time_last_packet
             self.total_bytes_sent += len(packet)
 
         self.frames_sent += 1
@@ -153,9 +152,11 @@ class VideoServer:
     def print_metrics(self):
         """Print transmission metrics"""
         bitrate = (self.total_bytes_sent * 8) / (time.time() - self.start_time)
-        print(f"\rProgress: {self.total_bytes_sent*1e-6:.2f} MB sent, "
+        print(f"\rBytes sent: {self.total_bytes_sent*1e-6:.2f} MB, "
               f"Bitrate: {bitrate*1e-6:.2f} Mbps, "
-              f"Frames sent: {self.frames_sent}", end="")
+              f"Frames sent: {self.frames_sent}, "
+              f"Tx time: {self.tx_time*1000:.1f} msec, ",
+              f"Queue size: {self.display_queue.qsize()}", end="")
 
     def run(self):
         """Main server loop"""
@@ -188,7 +189,7 @@ if __name__ == "__main__":
     VIDEO_PATH = "./videos/SampleVideo_1280x720_30mb.mp4"
     #VIDEO_PATH = "./video/1_hour_timer.webm"
     PACKET_SIZE = 4011
-    DELAY = 5e-3
+    DELAY = 2.5e-3
     COMPRESSION = 20
     DISPLAY_VIDEO = True
 
