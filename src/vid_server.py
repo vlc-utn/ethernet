@@ -14,6 +14,8 @@ CONST_SI = 0b1111               # Scrambler initialization
 CONST_FEC_RATE = 0b001          # UNUSED
 CONST_BLOCK_SIZE = 0b00         # UNUSED
 
+CONST_QUEUE_MAX_SIZE = 100      # Max size of diplay queue
+
 class VideoServer:
     def __init__(self, host="rp-f09035.local", port=1001,
                  bitstream="bitstreams/vlc_tx.bit",
@@ -26,7 +28,7 @@ class VideoServer:
         self.display_video = display_video
 
         self.send_queue = Queue()       # Queue with packets to be sent
-        self.display_queue = Queue(maxsize=500)    # Queue with frames for video visualization
+        self.display_queue = Queue(maxsize=CONST_QUEUE_MAX_SIZE)    # Queue with frames for video visualization
 
         # Used to print metrics
         self.total_bytes_sent = 0
@@ -99,9 +101,8 @@ class VideoServer:
 
     def display_frames(self):
         """Display frames"""
-        cv2.namedWindow('Video Server', cv2.WINDOW_NORMAL)
-        cv2.moveWindow('Video Server', 250, 150)
-        cv2.resizeWindow('Video Server', 750, 750)
+        cv2.namedWindow('Video Server', cv2.WINDOW_GUI_NORMAL)
+        cv2.resizeWindow('Video Server', 1280, 720)
 
         previous_frame_time = time.time()
         while True:
@@ -185,12 +186,12 @@ if __name__ == "__main__":
     HOST = "rp-f09035.local"
     PORT = 1001
     BITSTREAM = "bitstreams/vlc_tx.bit"
-    #VIDEO_PATH = './video/CiroyLosPersas.mp4'       # Replace with video path
+    #VIDEO_PATH = './videos/CiroyLosPersas.mp4'       # Replace with video path
     VIDEO_PATH = "./videos/SampleVideo_1280x720_30mb.mp4"
-    #VIDEO_PATH = "./video/1_hour_timer.webm"
+    #VIDEO_PATH = "./videos/1_hour_timer.webm"
     PACKET_SIZE = 4011
     DELAY = 2.5e-3
-    COMPRESSION = 20
+    COMPRESSION = 60
     DISPLAY_VIDEO = True
 
     server = VideoServer(host=HOST, port=PORT, bitstream=BITSTREAM,
