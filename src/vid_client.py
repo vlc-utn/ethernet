@@ -17,44 +17,60 @@ class VideoClient:
         self.logger = logging.getLogger('VideoClient')
 
         self.rp = RedPitayaRx(bitstream=bitstream, host=host, port=port)
+        self.frame_count = 0
 
     def receive_frame_packets(self):
         """Receive and process incoming packets"""
-        receiving_frame = False
+        current_frame_data = None
+        reg_count = 0
         while True:
             time_start = time.time_ns()
             # Read registers
-            [data, reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.rp.read_vlc_rx()
+            [data, reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.rp.read_vlc_rx(reg_count)
 
-            if (reg0 != 0 and not h_error):
-                packets_in_frame = (((reg2 >> 24) & 0b111) << 3) | ((reg2 >> 16) & 0b111)
+            if (h_error):
+                self.logger.error(f"Header error on frame: {self.frame_count}")
+                self.rp.reset()
+                continue
+
+            if (data is not None):
+                
                 packet_number = (reg3 >> 24) & 0b111111
                 fps = (((reg2 >> 8) & 0b111) << 2) | (reg2 & 0b11)
-                self.time_per_frame = 1/fps
-
-                # TODO Erase print
-                print(f"Packet: {packet_number}/{packets_in_frame-1}")
-
-                if (packet_number == 0 and not receiving_frame):
-                    receiving_frame = True
+                packets_in_frame = (((reg2 >> 24) & 0b111) << 3) | ((reg2 >> 16) & 0b111)
+                
+                if (packet_number == 0 and current_frame_data is None and fps != 0):
                     current_frame_data = data
-                elif (receiving_frame):
-                    # TODO: missing frame handling
+                    self.fps = fps
+                    self.packets_in_frame = packets_in_frame
+                    self.time_per_frame = 1/fps
+                    print(f"\rfps = {fps}", end="")
+
+                elif (current_frame_data is not None):
+                    if (fps == 0):
+                        # Para que todos los paquetes tengan el mismo tamaño,
+                        # El último paquete de un frame va a transmitir el tamaño del paquete completo,
+                        # pero los 5 bits de FPS van a valer todos cero (para identificarlo)
+                        # y los 6 bits de "frame_number" y "packet_in_frame" son 12 bits del tamaño real del paquete
+                        last_packet_size = (packet_number << 6) | packets_in_frame
+                        data = data[0:last_packet_size]
+
                     current_frame_data = np.hstack([current_frame_data, data])
 
-                    if (packet_number == packets_in_frame - 1):
+                    if (fps == 0):
                         frame = cv2.imdecode(current_frame_data, cv2.IMREAD_COLOR)
                         current_frame_data = None
-                        receiving_frame = False
+                        self.frame_count += 1
+
                         if (frame is not None):
                             self.frame_buffer.put(frame)
                         else:
-                            print("INVALID IMAGE")
-                            self.logger.error("INVALID IMAGE")
+                            self.logger.error(f"Invalid image on frame: {self.frame_count}")
                             self.rp.reset()
 
                 time_end = time.time_ns()
-                print(f"Time elapsed: {(time_end - time_start)*1e-6} [ms])")
+                # TODO
+                #print(f"Time elapsed: {(time_end - time_start)*1e-6} [ms])")
 
     def display_frames(self):
         """Optimized display loop with strict timing"""
@@ -81,9 +97,7 @@ class VideoClient:
             try:
                 cv2.imshow("Video client", frame)
             except Exception as e:
-                print("Error showing frame")
                 self.logger.error(f"Error in display loop: {e}")
-                cv2.waitKey(10)
                 continue
 
             if (self.time_per_frame > time.time() - previous_frame_time):

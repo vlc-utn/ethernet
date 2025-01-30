@@ -74,7 +74,6 @@ class RedPitayaGeneric(PyhubTCP):
 
     def reset(self):
         """Resets IP cores"""
-
         # Set all control register to default values
         self.general_control = np.zeros(1, np.uint8)
         self.led_status = np.zeros(1, np.uint8)
@@ -87,7 +86,7 @@ class RedPitayaGeneric(PyhubTCP):
         self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
 
         # Wait a little, and then put the reset to high (nrst, reset is active low)
-        sleep(0.01)
+        sleep(1e-3)
         self.general_control[0] = set_bit(self.general_control[0], 0)   # nRst
         self.write(self.general_control, port=Ports.CONFIG, addr=CfgAddr.GENERAL_CONTROL)
 
@@ -388,34 +387,37 @@ class RedPitayaRx(RedPitayaGeneric):
         reg3 = data[5]
         return [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error]
 
-    def read_vlc_rx(self) -> list:
+    def read_vlc_rx(self, previous_reg_count:int=0) -> list:
         """Read VLC RX
 
         Returns the registers and the data read, or an empty list in case of
         error
         """
         tries = 0
-        data = 0
-        while True:
-            [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status(False)
-            size_to_read = reg0 - reg1
+        data = None
+        valid_reg = (previous_reg_count != 0)
+        while tries < 100:
+            [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status(valid_reg)
 
             if (h_error):
-                print("H_ERROR!!!!!!")
                 break
-            elif (reg_count != 0 and size_to_read <= data_size):
-                [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status(True) 
+            elif (valid_reg):
                 size_to_read = reg0 - reg1
+                while(size_to_read > data_size and tries < 100):
+                    [_, _, _, _, _, data_size, _, _] = self.read_status(False)
+                    sleep(1e-3)
+                    tries += 1
+
                 data = self.read_rx_fifo(size_to_read)
                 break
-            elif (tries == 100):
-                break
             else:
-                sleep(1e-3)
+                valid_reg = (reg_count >= 1)
                 tries += 1
+                sleep(1e-3)
 
-        if (reg0):
-            print(f"reg0={reg0}, reg_count={reg_count}, data_size={data_size}")
+        # TODO delete
+        # if (data is not None):
+        #     print(f"reg0={reg0}, reg_count={reg_count}, data_size={data_size}")
         return [data, reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error]
 
 
