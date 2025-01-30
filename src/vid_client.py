@@ -8,7 +8,7 @@ import logging
 from red_pitaya import RedPitayaRx
 
 class VideoClient:
-    def __init__(self, host="rp-f09035.local", port=1001, bitstream="bitstreams/vlc_rx.bit", initial_buffer_size=100):
+    def __init__(self, host="rp-f09035.local", port=1001, bitstream="bitstreams/vlc_rx.bit", initial_buffer_size=30):
 
         self.frame_buffer = Queue(maxsize=500)
         self.initial_buffer_size = initial_buffer_size
@@ -28,8 +28,10 @@ class VideoClient:
  
         while True:
             # Read registers
+            time_last_packet = time.time()
             [data, reg0, reg1, reg2, reg3, self.reg_count, data_size, h_ready, h_error] = self.rp.read_vlc_rx(self.reg_count)
 
+            self.rx_time = time.time() - time_last_packet 
             # Check for errors
             if (h_error):
                 self.logger.error(f"Header error on frame: {self.frame_count}")
@@ -88,25 +90,23 @@ class VideoClient:
             self.start_time = time.time()
         
         if (self.frame_count != 0):
-            rx_time = time.time() - self.start_time
-            bitrate = (self.total_bytes_received * 8) / rx_time
+            bitrate = (self.total_bytes_received * 8) / (time.time() - self.start_time)
         else:
             bitrate = 0
-            rx_time = 0
+            self.rx_time = 0
         
         print(f"\rBytes received: {self.total_bytes_received*1e-6:.2f} MB, ",
               f"Bitrate: {bitrate*1e-6:.2f} Mbps, "
               f"Frames received: {self.frame_count}, ",
-              f"Rx time: {rx_time*1000:.1f} msec, ",
+              f"Rx time: {self.rx_time*1000:.1f} msec, ",
               f"Queue size: {self.frame_buffer.qsize()}", end="")
 
     def display_frames(self):
         """Optimized display loop with strict timing"""
         self.logger.info("Waiting for initial buffer fill...")
 
-        cv2.namedWindow('Video client', cv2.WINDOW_NORMAL)
-        cv2.moveWindow('Video client', 1100, 150)
-        cv2.resizeWindow('Video client', 750, 750)
+        cv2.namedWindow('Video client', cv2.WINDOW_GUI_NORMAL)
+        cv2.resizeWindow('Video client', 1280, 720)
 
         # Wait for a little of the buffer to fill before starting to display
         print("Waiting for transmissions...")
@@ -144,7 +144,7 @@ class VideoClient:
         # Exit the loop after failing "x" consecutive times to parse a frame,
         # after having received a frist successful frame
         tries = 0
-        while (tries < 10):
+        while (tries < 200):
             if (self.receive_frame() or self.frame_count == 0):
                 tries = 0
             else:
@@ -162,7 +162,7 @@ if __name__ == "__main__":
     HOST = "rp-f09168.local"
     PORT = 1001
     BITSTREAM = "bitstreams/vlc_rx.bit"
-    INIT_BUFFER_SIZE = 10
+    INIT_BUFFER_SIZE = 30
 
     client = VideoClient(host=HOST, port=PORT, bitstream=BITSTREAM, initial_buffer_size=INIT_BUFFER_SIZE)
     client.run()
