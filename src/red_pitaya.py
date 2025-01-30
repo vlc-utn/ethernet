@@ -74,7 +74,6 @@ class RedPitayaGeneric(PyhubTCP):
 
     def reset(self):
         """Resets IP cores"""
-
         # Set all control register to default values
         self.general_control = np.zeros(1, np.uint8)
         self.led_status = np.zeros(1, np.uint8)
@@ -87,7 +86,7 @@ class RedPitayaGeneric(PyhubTCP):
         self.write(self.rx_control, port=Ports.CONFIG, addr=CfgAddr.RX_CONTROL)
 
         # Wait a little, and then put the reset to high (nrst, reset is active low)
-        sleep(0.01)
+        sleep(1e-3)
         self.general_control[0] = set_bit(self.general_control[0], 0)   # nRst
         self.write(self.general_control, port=Ports.CONFIG, addr=CfgAddr.GENERAL_CONTROL)
 
@@ -118,7 +117,6 @@ class RedPitayaTx(RedPitayaGeneric):
 
         self.write(data, port=Ports.VLC_TX, addr=0)
         self.write_registers(regs)
-
 
     def use_ofdm(self, state: bool):
         """Enable or disable OFDM output

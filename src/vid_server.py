@@ -37,8 +37,18 @@ class VideoServer:
         self.rp = RedPitayaTx(bitstream=bitstream, host=host, port=port)
         self.setup_video(video_path)
 
-    def prepare_packet(self, data:np.ndarray[np.uint8], packet_number, packets_in_frame):
+    def prepare_packet(self, data:np.ndarray[np.uint8], packet_number:np.uint8, packets_in_frame:np.uint8):
         """Prepare packet with registers and data"""
+
+        fps = self.fps
+        if (packet_number == packets_in_frame -1):
+            # Para que todos los paquetes tengan el mismo tamaño
+            packet_number = (len(data) >> 6) & 0b111111
+            packets_in_frame = len(data) & 0b111111
+            fps = 0
+            payload_out = np.zeros(self.packet_size, np.uint8)
+            payload_out[0:len(data)] = data
+            data = payload_out
 
         # Append zeros to message to make it a multiple of FEC_BLOCK_SIZE
         payload_len_in_fec_blocks = np.uint32(np.ceil(len(data)/CONST_FEC_BLOCK_SIZE))
@@ -54,7 +64,7 @@ class VideoServer:
         regs[1] = payload_extra_words
 
         # Replaced FEC Concatenation Factor and repetition number with "packets_in_frame"
-        regs[2] = (((packets_in_frame >> 3) & 0b111 ) << 24) | ((packets_in_frame & 0b111) << 16) | (((self.fps >> 2) & 0b111) << 8) | ((self.fps & 0b11) << 0)
+        regs[2] = (((packets_in_frame >> 3) & 0b111 ) << 24) | ((packets_in_frame & 0b111) << 16) | (((fps >> 2) & 0b111) << 8) | ((fps & 0b11) << 0)
 
         # Replaced MIMO with packet number
         regs[3] = (packet_number << 24) | (CONST_CP << 16) | (CONST_BAT_ID << 8) | (CONST_SI << 0)
@@ -126,14 +136,14 @@ class VideoServer:
 
             packet, regs = self.prepare_packet(packet_data, packet_number, packets_in_frame)
 
-            time_start = time.time_ns()
+            time_last_packet = time.time()
             self.rp.write_vlc_tx(packet.astype(np.uint32), regs)
-            time.sleep(self.delay_per_package)
-            if(packet_number == packets_in_frame -1):
-                time.sleep(self.delay_per_package)
-                self.rp.reset()
-            time_end = time.time_ns()
-            print(f"Time elapsed: {(time_end - time_start)*1e-6} [ms])")
+
+            if (self.delay_per_package > time.time() - time_last_packet):
+                    time.sleep(abs(self.delay_per_package - (time.time() - time_last_packet)))
+
+            # TODO
+            #print(f"Time elapsed: {(time.time() - time_last_packet)*1e3} [ms])")
 
             self.total_bytes_sent += len(packet)
 
@@ -175,7 +185,7 @@ if __name__ == "__main__":
     PORT = 1001
     BITSTREAM = "bitstreams/vlc_tx.bit"
     #VIDEO_PATH = './video/CiroyLosPersas.mp4'       # Replace with video path
-    VIDEO_PATH = "./videos/SampleVideo_1280x720_10mb.mp4"
+    VIDEO_PATH = "./videos/SampleVideo_1280x720_30mb.mp4"
     #VIDEO_PATH = "./video/1_hour_timer.webm"
     PACKET_SIZE = 4011
     DELAY = 5e-3
@@ -183,6 +193,7 @@ if __name__ == "__main__":
     DISPLAY_VIDEO = True
 
     server = VideoServer(host=HOST, port=PORT, bitstream=BITSTREAM,
-                         video_path=VIDEO_PATH, delay_per_package=DELAY,
+                         video_path=VIDEO_PATH, packet_size=PACKET_SIZE,
+                         delay_per_package=DELAY,
                          compression=COMPRESSION, display_video=DISPLAY_VIDEO)
     server.run()
