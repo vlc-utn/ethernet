@@ -386,22 +386,37 @@ class RedPitayaRx(RedPitayaGeneric):
         reg3 = data[5]
         return [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error]
 
-    def read_vlc_rx(self) -> list:
+    def read_vlc_rx(self, previous_reg_count:int=0) -> list:
         """Read VLC RX
 
         Returns the registers and the data read, or an empty list in case of
         error
         """
-        [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status(True)
-        size_to_read = reg0 - reg1
+        tries = 0
+        data = None
+        valid_reg = (previous_reg_count != 0)
+        while tries < 100:
+            [reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error] = self.read_status(valid_reg)
 
-        if (data_size < size_to_read):
-            print("Warning! Size to be read is less than actual size")
+            if (h_error):
+                break
+            elif (valid_reg):
+                size_to_read = reg0 - reg1
+                while(size_to_read > data_size and tries < 100):
+                    [_, _, _, _, _, data_size, _, _] = self.read_status(False)
+                    sleep(1e-3)
+                    tries += 1
 
-        if (size_to_read):
-            data = self.read_rx_fifo(size_to_read)
-        else:
-            data = 0
+                data = self.read_rx_fifo(size_to_read)
+                break
+            else:
+                valid_reg = (reg_count >= 1)
+                tries += 1
+                sleep(1e-3)
+
+        # TODO delete
+        # if (data is not None):
+        #     print(f"reg0={reg0}, reg_count={reg_count}, data_size={data_size}")
         return [data, reg0, reg1, reg2, reg3, reg_count, data_size, h_ready, h_error]
 
 

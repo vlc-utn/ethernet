@@ -4,6 +4,6 @@ import numpy as np
 from binary import *
 import matplotlib.pyplot as plt
 
-rp = RedPitayaRx(bitstream="bitstreams/vlc_rx.bit")
+rp = RedPitayaRx(bitstream="bitstreams/vlc_rx.bit", host="rp-f09168.local")
 data_rx = rp.test_rx(plot=False)
 rp.test_rx_speed()

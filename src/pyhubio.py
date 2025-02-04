@@ -278,7 +278,7 @@ class PyhubTCP:
             mod = size % 65536
             if mod > 0:
                 rlen[-1] = mod
-            command = rlen << 28 | (port & 0x7) << 24 | (addr + incr) & 0xFFFFFF
+            command = (rlen << 28) | ((port & 0x7) << 24) | ((np.uint32(addr + incr) & np.uint32(0xFFFFFF)))
             self.socket.sendall(command.tobytes())
             offset = 0
             limit = view.size
